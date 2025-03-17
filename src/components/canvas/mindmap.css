@@ -1,0 +1,191 @@
+/* Add smooth transitions for React Flow nodes */
+.react-flow__node {
+  transition: transform 0.5s ease, height 0.5s ease;
+}
+
+/* Add transition for expanding/collapsing content */
+.follow-up-node {
+  transition: height 0.5s ease, transform 0.5s ease;
+}
+
+/* Response Node styling - make them more prominent */
+.response-node {
+  border-radius: 12px !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+  border-width: 1px !important;
+  transition: all 0.3s ease;
+}
+
+.response-node:hover {
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+  transform: translateY(-2px);
+}
+
+/* Follow-up Node styling - more compact but clearly interactive */
+.follow-up-node {
+  border-radius: 8px !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06) !important;
+  transition: all 0.3s ease;
+}
+
+.follow-up-node:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+.follow-up-node.expanded {
+  z-index: 10; /* Bring expanded nodes to the front */
+}
+
+/* Improve edge styling for better visual flow */
+.react-flow__edge-path {
+  transition: d 0.5s ease;
+  stroke-width: 1.5px;
+  stroke: #cbd5e0;
+}
+
+.react-flow__edge {
+  z-index: 5; /* Keep edges behind nodes */
+}
+
+/* Make selected edges more prominent */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #6366F1;
+  stroke-width: 2px;
+}
+
+/* Enhance accessibility focus indicators */
+.react-flow__node:focus {
+  outline: 2px solid #6366F1;
+  outline-offset: 2px;
+}
+
+/* Enhanced content styling for LLM responses */
+.prose {
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Style code blocks for better readability */
+.prose pre {
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  padding: 0.75rem;
+  margin: 1rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.prose code {
+  background-color: #f1f1f1;
+  border-radius: 3px;
+  padding: 0.1em 0.3em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+/* Improve list display */
+.prose ul, .prose ol {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+/* Add responsive line breaks for long links */
+.prose a {
+  word-break: break-all;
+}
+
+/* Auto-resize for FollowUpNode content */
+.follow-up-node .text-sm {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Canvas styling for better background */
+.react-flow__renderer {
+  background-color: #f9fafc;
+}
+
+/* Improve the canvas background dots */
+.react-flow__background {
+  background-size: 20px 20px;
+  background-color: #f9fafc;
+}
+
+/* Handle styling */
+.react-flow__handle {
+  width: 8px !important;
+  height: 8px !important;
+  background-color: #cbd5e0;
+  border: 2px solid white;
+}
+
+.react-flow__handle-right {
+  right: -4px;
+}
+
+.react-flow__handle-left {
+  left: -4px;
+}
+
+/* Highlighted path styling */
+.highlighted-path {
+  stroke: #22c55e !important; /* Green color for highlighted path */
+  stroke-width: 2.5px !important;
+  filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.4));
+  z-index: 20; /* Ensure highlighted paths appear above other edges */
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 5 5;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+@keyframes dashdraw {
+  from {
+    stroke-dashoffset: 10;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Dashed edge styling */
+.dashed-edge .react-flow__edge-path {
+  stroke-dasharray: 5 5;
+}
+
+/* Topic node styling */
+.topic-node {
+  border-radius: 12px !important;
+  box-shadow: 0 4px 6px rgba(168, 85, 247, 0.1), 0 1px 3px rgba(168, 85, 247, 0.05) !important;
+  border-width: 1px !important;
+  transition: all 0.3s ease;
+}
+
+.topic-node:hover {
+  box-shadow: 0 8px 15px rgba(168, 85, 247, 0.15), 0 2px 4px rgba(168, 85, 247, 0.1) !important;
+  transform: translateY(-2px);
+}
+
+/* Underlined topic terms */
+.topic-term {
+  text-decoration: underline;
+  text-decoration-color: #8b5cf6;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #4c1d95;
+  padding: 0 2px;
+  transition: all 0.2s ease;
+}
+
+.topic-term:hover {
+  background-color: rgba(139, 92, 246, 0.1);
+  border-radius: 3px;
+} 
