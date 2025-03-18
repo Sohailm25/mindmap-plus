@@ -32,15 +32,47 @@ initializeDB();
 // Create Express app
 const app = express();
 
-// Middleware
-app.use(cors());
+// CORS configuration
+const corsOptions = {
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:5175',
+      'http://localhost:5176',
+      'http://localhost:5001',
+      undefined // Allow requests with no origin (like mobile apps or curl requests)
+    ];
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
+
+// Parse JSON bodies
 app.use(express.json());
 
 // Logging middleware
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`, { 
-    ip: req.ip, 
-    userAgent: req.headers['user-agent'] 
+  console.log('Request:', {
+    method: req.method,
+    url: req.url,
+    origin: req.headers.origin,
+    headers: req.headers
   });
   next();
 });

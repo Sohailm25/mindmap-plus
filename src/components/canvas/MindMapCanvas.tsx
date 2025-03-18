@@ -7,11 +7,16 @@ import ReactFlow, {
   Node,
   NodeProps,
   NodeTypes,
+  EdgeTypes,
   useEdgesState,
   useNodesState,
   useReactFlow,
   ReactFlowInstance,
+  Node as FlowNode,
+  Connection,
+  EdgeMarker,
 } from 'reactflow';
+import type { Edge as FlowEdge } from 'reactflow';
 import 'reactflow/dist/style.css';
 import logger from '../../utils/logger';
 import ResponseNode from './ResponseNode';
@@ -22,23 +27,7 @@ import { NodeType, SynthesisArtifact } from '../../types';
 import { claudeApi } from '../../services/api';
 import './mindmap.css'; // We'll create this file next
 import TopicNode from './TopicNode';
-
-// Move nodeTypes outside the component to prevent re-creation on each render
-const NODE_TYPES: NodeTypes = {
-  response: ResponseNode,
-  followUp: FollowUpNode,
-  topic: TopicNode,
-};
-
-// Function to create a standard edge
-const createEdge = (source: string, target: string) => {
-  return {
-    id: `edge-${source}-${target}`,
-    source,
-    target,
-    type: 'mindmap-edge'
-  };
-};
+import { nodeTypes, edgeTypes } from './nodeTypes';
 
 // Constants for dimensions and spacing
 const NODE_WIDTH = 300; // Default width of nodes
@@ -219,12 +208,46 @@ const avoidOverlap = (
   return testPosition;
 };
 
-interface MindMapCanvasProps {
-  initialQuery?: string;
-  canvasId?: string;
+type CustomEdge = FlowEdge & {
+  animated: boolean;
+  style: React.CSSProperties;
+  markerEnd: EdgeMarker;
+};
+
+interface CustomNode extends Omit<FlowNode, 'position'> {
+  position: { x: number; y: number };
 }
 
-const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId }) => {
+interface TopicNodeData {
+  id: string;
+  topic: string;
+  explanation: string;
+  onTopicClick: (topic: string, nodeId: string) => void;
+}
+
+interface TopicNode extends CustomNode {
+  data: TopicNodeData;
+}
+
+interface FollowUpData {
+  id: string;
+  question: string;
+  content: string;
+  onFollowUp: (nodeId: string) => void;
+  onTopicClick: (topic: string, nodeId: string) => void;
+}
+
+interface FollowUpNode extends CustomNode {
+  data: FollowUpData;
+}
+
+interface MindMapCanvasProps {
+  initialQuery: string;
+  canvasId?: string;
+  onError?: (message: string) => void;
+}
+
+const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId, onError }) => {
   // React Flow initialization
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -462,7 +485,7 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
             onCreateCustomFollowUp: handleCreateCustomFollowUp,
             onNodeHover: handleNodeHover,
             canvasId: canvasId || '',
-            onTopicClick: handleTopicClick,
+            onTopicClick: (topic: string, nodeId: string) => handleTopicClick(topic, nodeId),
             onResize: handleNodeResize
           }
         };
@@ -502,7 +525,7 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
                 onCreateCustomFollowUp: handleCreateCustomFollowUp,
                 onResize: handleNodeResize,
                 onNodeHover: handleNodeHover,
-                onTopicClick: handleTopicClick
+                onTopicClick: (topic: string, nodeId: string) => handleTopicClick(topic, nodeId)
               }
             };
             initialNodes.push(followUpNode);
@@ -612,405 +635,85 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
   };
 
   // Function to build context from ancestor nodes
-  const buildAncestorContext = async (nodeId: string): Promise<string[]> => {
+  const buildAncestorContext = (nodeId: string): string[] => {
     const context: string[] = [];
-    const visitedNodes = new Set<string>();
+    let currentNode = nodes.find(n => n.id === nodeId);
     
-    // Get current nodes and edges
-    const currentNodes = getNodes();
-    const currentEdges = getEdges();
-    
-    // Recursive function to traverse up the node tree
-    const getParentContext = (currentNodeId: string) => {
-      if (visitedNodes.has(currentNodeId)) return; // Prevent cycles
-      visitedNodes.add(currentNodeId);
-      
-      // Find the node
-      const node = currentNodes.find(n => n.id === currentNodeId);
-      if (!node) return;
-      
-      // Add this node's content to context if it exists
-      if (node.data.question) {
-        context.push(`Question: ${node.data.question}`);
+    while (currentNode?.data) {
+      const content = currentNode.data.content;
+      if (content) {
+        context.unshift(content);
       }
-      if (node.data.answer || node.data.content) {
-        context.push(`Answer: ${node.data.answer || node.data.content}`);
-      }
-      
-      // Find parent edges and traverse up
-      const parentEdges = currentEdges.filter(edge => edge.target === currentNodeId);
-      parentEdges.forEach(edge => {
-        getParentContext(edge.source);
-      });
-    };
-    
-    // Start from the given node
-    getParentContext(nodeId);
+      const parentEdge = edges.find(e => e.target === currentNode?.id);
+      currentNode = parentEdge ? nodes.find(n => n.id === parentEdge.source) : undefined;
+    }
     
     return context;
   };
 
-  const handleFollowUpQuestion = async (nodeId: string, question: string, isCustom = false) => {
-    try {
-      logger.info('Processing follow-up question', { 
-        nodeId, 
-        questionLength: question.length,
-        isCustom
-      });
-      
-      // Find the node's ancestors to use as context
-      const ancestorContext = await buildAncestorContext(nodeId);
-      
-      logger.debug('Built ancestor context for query', { 
-        nodeId, 
-        contextLength: ancestorContext.length
-      });
-      
-      // Make the API call to Claude
-      logger.debug('Making API call to Claude for follow-up', {
-        nodeId,
-        questionLength: question.length,
-        contextLength: ancestorContext.length
-      });
-      
-      const response = await claudeApi.processFollowUp(question, ancestorContext);
-      
-      // Log response details for debugging
-      logger.debug('Received response from Claude API', {
-        nodeId,
-        success: response.success,
-        hasAnswer: response.success && !!response.data?.answer,
-        answerLength: response.success && response.data?.answer ? response.data.answer.length : 0,
-        followUpCount: response.success && response.data?.followUpQuestions ? response.data.followUpQuestions.length : 0,
-        isMockData: !response.success || !response.data,
-      });
-      
-      // If the API call wasn't successful, use mock data
-      if (!response.success || !response.data) {
-        logger.warn('API call failed, using mock data for follow-up', { nodeId, isCustom });
-        
-        // Create mock response
-        const mockAnswer = `This is a mock answer for "${question}" because the Claude API server isn't running. Start the API server to get actual AI responses.`;
-        const mockFollowUps = ["Question 1 about the topic?", "Question 2 expanding on details?", "Question 3 exploring implications?"];
-        
-        // Update node with mock data
-        setNodes(currentNodes => {
-          const targetNode = currentNodes.find(node => node.id === nodeId);
-          if (!targetNode) {
-            logger.error('Node disappeared from state when updating with mock answer', { nodeId });
-            return currentNodes;
-          }
-          
-          const updatedNodes = currentNodes.map(node => {
-            if (node.id === nodeId) {
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  answer: mockAnswer,
-                  hasBeenAnswered: true,
-                  childQuestions: mockFollowUps,
-                  expandOnAnswer: true,
-                  question: isCustom ? question : node.data.question,
-                  onCreateCustomFollowUp: handleCreateCustomFollowUp,
-                  onNodeHover: handleNodeHover
-                }
-              };
-            }
-            return node;
-          });
-          
-          // Auto-fit view after updating nodes
-          setTimeout(() => fitView(), 300);
-          
-          // Explicitly generate child nodes for mock data after a short delay
-          setTimeout(() => {
-            try {
-              logger.debug('Explicitly generating child nodes for mock data', { nodeId });
-              handleGenerateChildNodes(
-                nodeId,
-                isCustom ? question : question,
-                mockAnswer,
-                mockFollowUps
-              );
-            } catch (error) {
-              logger.error('Error generating child nodes for mock data', { 
-                nodeId, 
-                error: error instanceof Error ? error.message : 'Unknown error' 
-              });
-            }
-          }, 500);
-          
-          return updatedNodes;
-        });
-        
-        return;
-      } else {
-        // API call was successful, response.data exists
-        const responseData = response.data;
-        const answer = responseData.answer;
-        const followUpQuestions = responseData.followUpQuestions;
-        
-        // Update node with API response
-        setNodes(currentNodes => {
-          const targetNode = currentNodes.find(node => node.id === nodeId);
-          if (!targetNode) {
-            logger.error('Node disappeared from state when updating with API response', { nodeId });
-            return currentNodes;
-          }
-          
-          const updatedNodes = currentNodes.map(node => {
-            if (node.id === nodeId) {
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  answer,
-                  hasBeenAnswered: true,
-                  childQuestions: followUpQuestions,
-                  expandOnAnswer: true,
-                  question: isCustom ? question : node.data.question,
-                  onCreateCustomFollowUp: handleCreateCustomFollowUp,
-                  onNodeHover: handleNodeHover
-                }
-              };
-            }
-            return node;
-          });
-          
-          return updatedNodes;
-        });
-        
-        // Auto-fit view after updating nodes
-        setTimeout(() => fitView(), 300);
-        
-        // Explicitly generate child nodes for API response after a short delay
-        setTimeout(() => {
-          try {
-            logger.debug('Explicitly generating child nodes for API response', { nodeId });
-            handleGenerateChildNodes(
-              nodeId,
-              isCustom ? question : question,
-              answer,
-              followUpQuestions
-            );
-          } catch (error) {
-            logger.error('Error generating child nodes for API response', { 
-              nodeId, 
-              error: error instanceof Error ? error.message : 'Unknown error' 
-            });
-          }
-        }, 500);
+  const handleFollowUpQuestion = (nodeId: string) => {
+    handleGenerateChildNodes(nodeId).catch(error => {
+      console.error('Error in handleFollowUpQuestion:', error);
+      if (onError) {
+        onError('Failed to generate follow-up questions. Please try again.');
       }
-    } catch (error) {
-      logger.error('Error processing follow-up question', { 
-        nodeId, 
-        question, 
-        error: error instanceof Error ? { message: error.message, stack: error.stack } : error 
-      });
-    }
+    });
   };
 
-  const handleGenerateChildNodes = (
-    parentId: string, 
-    parentQuestion: string, 
-    parentAnswer: string, 
-    followUpQuestions: string[]
-  ) => {
-    // Add detailed debug logging for the input parameters
-    logger.debug('handleGenerateChildNodes called with:', {
-      parentId,
-      parentQuestionLength: parentQuestion.length,
-      parentAnswerLength: parentAnswer.length,
-      followUpQuestionsCount: followUpQuestions.length,
-      followUpQuestions: followUpQuestions.map(q => q.substring(0, 30) + (q.length > 30 ? '...' : '')),
-      isInTrackingSet: nodesWithGeneratedChildren.current.has(parentId)
-    });
-    
-    // Check if this node has already generated children to prevent duplicates
-    // Only skip if there are actual follow-up questions AND the node is already tracked
-    if (nodesWithGeneratedChildren.current.has(parentId) && followUpQuestions.length > 0) {
-      logger.info('Node has already generated children, skipping', { parentId });
-      // MODIFICATION: Print the current tracking set for debugging
-      logger.debug('Current tracking set:', { 
-        size: nodesWithGeneratedChildren.current.size,
-        trackedIds: Array.from(nodesWithGeneratedChildren.current).join(', ')
-      });
-      return;
-    }
-    
-    // If there are no follow-up questions, log and return
-    if (followUpQuestions.length === 0) {
-      logger.info('No follow-up questions to generate for node', { parentId });
-      // Still mark as processed to prevent further attempts
-      nodesWithGeneratedChildren.current.add(parentId);
-      return;
-    }
-    
-    // Log before generating
-    logger.info('Generating child nodes for parent node', { 
-      parentId, 
-      questionCount: followUpQuestions.length
-    });
-  
-    // Array to track created node IDs for edge creation
-    const newNodeIds: string[] = [];
-    
-    // IMPORTANT: Mark as generated now to prevent race conditions
-    // Add this node to tracking set BEFORE processing to prevent duplicate generation
-    nodesWithGeneratedChildren.current.add(parentId);
-    logger.debug('Marked node for child generation:', { 
-      parentId, 
-      trackedNodesCount: nodesWithGeneratedChildren.current.size
-    });
-    
-    // Calculate positions for child nodes
-    setNodes(currentNodes => {
-      try {
-        // Find the parent node to determine where to position children
-        const parentNode = currentNodes.find(node => node.id === parentId);
-        
-        if (!parentNode) {
-          logger.error('Parent node not found for generating children', { 
-            parentId, 
-            availableIds: currentNodes.map(n => n.id).join(', ') 
-          });
-          return currentNodes;
-        }
-        
-        // Calculate positions for child nodes
-        const childPositions = calculateNodePositions(
-          parentId,
-          followUpQuestions.length,
-          currentNodes,
-          edges
-        );
-        
-        if (!childPositions || childPositions.length === 0) {
-          logger.error('Failed to calculate child positions', { parentId });
-          return currentNodes;
-        }
-        
-        // Create an array for the new nodes we'll add
-        const newNodes: Node[] = [];
-        
-        // Add follow-up question nodes
-        followUpQuestions.forEach((question, index) => {
-          try {
-            // Generate a unique, stable ID for each child node
-            const childId = `followup-${parentId}-${index}`;
-            
-            // Store the ID for edge creation later
-            newNodeIds.push(childId);
-            
-            // Create the follow-up node with appropriate position from our calculated positions
-            const childNode = {
-              id: childId,
-              type: 'followUp',
-              position: childPositions[index] || { x: 0, y: 0 },
-              data: {
-                id: childId,
-                question,
-                parentQuestion,
-                parentAnswer,
-                onFollowUp: handleFollowUpQuestion,
-                onGenerateChildNodes: handleGenerateChildNodes,
-                onCreateCustomFollowUp: handleCreateCustomFollowUp,
-                onResize: handleNodeResize,
-                onNodeHover: handleNodeHover,
-                onTopicClick: handleTopicClick
-              }
-            };
-            
-            // Add the new node to our array
-            newNodes.push(childNode);
-            
-            logger.debug('Created follow-up node', {
-              id: childId,
-              question: question.substring(0, 20) + (question.length > 20 ? '...' : ''),
-              position: childPositions[index]
-            });
-          } catch (nodeCreationError) {
-            logger.error('Error creating follow-up node', {
-              question,
-              index,
-              error: nodeCreationError instanceof Error ? nodeCreationError.message : 'Unknown error'
-            });
-          }
-        });
-        
-        // Log counts for debugging
-        logger.debug('Generated child nodes', {
-          parentId,
-          childCount: newNodes.length,
-          positions: childPositions.length
-        });
-        
-        // Successful node creation - now we can mark the parent as having generated children
-        if (newNodes.length > 0) {
-          // Mark this node as having generated children AFTER successful node creation
-          nodesWithGeneratedChildren.current.add(parentId);
-          
-          logger.debug('Marked node as having generated children', { 
-            parentId, 
-            childCount: newNodes.length
-          });
-        }
-        
-        // Apply changes to state
-        setNodes(prev => [...prev, ...newNodes]);
-        setEdges(prev => [...prev, ...newNodes.map(node => createEdge(parentId, node.id))]);
-        
-        // Auto-fit view to include the new nodes
-        setTimeout(() => fitView(), 300);
-        
-        logger.debug('Successfully generated child nodes', { count: newNodes.length });
-        
-        return newNodes.length > 0 ? [...currentNodes, ...newNodes] : currentNodes;
-      } catch (nodesError) {
-        logger.error('Error in node creation', {
-          parentId,
-          error: nodesError instanceof Error ? nodesError.message : 'Unknown error'
-        });
-        return currentNodes; // Return unchanged if error
+  const handleGenerateChildNodes = async (nodeId: string) => {
+    try {
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) {
+        console.error('Node not found:', nodeId);
+        return;
       }
-    });
-    
-    // Create new edges connecting parent to all child nodes
-    setTimeout(() => {
-      setEdges(currentEdges => {
-        try {
-          const newEdges = [...currentEdges];
-          
-          // Create edges from parent to each new child node
-          newNodeIds.forEach(childId => {
-            const edgeId = `edge-${parentId}-to-${childId}`;
-            
-            // Check if edge already exists to prevent duplicates
-            if (!currentEdges.some(edge => edge.id === edgeId)) {
-              newEdges.push(createEdge(parentId, childId));
-            }
-          });
-          
-          logger.debug('Created edges for child nodes', {
-            parentId,
-            edgeCount: newEdges.length - currentEdges.length,
-            nodeIds: newNodeIds.join(', ')
-          });
-          
-          return newEdges;
-        } catch (error) {
-          logger.error('Error creating edges for child nodes', { 
-            parentId, 
-            error: error instanceof Error ? { message: error.message, stack: error.stack } : error 
-          });
-          return currentEdges;
-        }
+
+      // Check if this node has already generated children
+      const existingEdges = edges.filter(e => e.source === nodeId);
+      if (existingEdges.length > 0) {
+        console.log('Node already has children, skipping generation');
+        return;
+      }
+
+      const context = buildAncestorContext(nodeId);
+      const response = await claudeApi.processFollowUp(node.data.content, context);
+
+      const newNodes = response.followUpQuestions.map((question: string, index: number) => {
+        const childId = `${nodeId}-child-${Date.now()}-${index}`;
+        return createFollowUpNode(childId, question, nodeId);
       });
-      
-      // Auto-fit view to ensure all nodes are visible
-      setTimeout(() => fitView(), 300);
-    }, 100);
+
+      const newEdges = newNodes.map((childNode: FollowUpNode): FlowEdge => ({
+        id: `${nodeId}-to-${childNode.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        source: nodeId,
+        target: childNode.id,
+        type: 'smoothstep',
+        animated: true,
+        style: { stroke: '#6366f1', strokeWidth: 2 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+          color: '#6366f1'
+        }
+      }));
+
+      // Filter out any duplicate edges
+      const uniqueEdges = newEdges.filter((newEdge: FlowEdge) => 
+        !edges.some(existingEdge => 
+          existingEdge.source === newEdge.source && 
+          existingEdge.target === newEdge.target
+        )
+      );
+
+      setNodes(prevNodes => [...prevNodes, ...newNodes]);
+      setEdges(prevEdges => [...prevEdges, ...uniqueEdges]);
+    } catch (error) {
+      console.error('Error generating child nodes:', error);
+      if (onError) {
+        onError('Failed to generate follow-up questions. Please try again.');
+      }
+    }
   };
 
   const handleNodeSelection = (nodeId: string, selected: boolean) => {
@@ -1131,7 +834,7 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
                       return currentEdges;
                     }
                     
-                    const newEdge: Edge = {
+                    const newEdge: CustomEdge = {
                       id: uniqueEdgeId,
                       source: parentId,
                       target: newNodeId,
@@ -1447,7 +1150,7 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
         onTopicClick: (topic: string, nodeId: string) => {
           // Safe access via ref
           if (topicClickRefHolder.current) {
-            topicClickRefHolder.current(nodeId, topic);
+            topicClickRefHolder.current(topic, nodeId);
           }
         }
       }
@@ -1461,7 +1164,7 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
         id: `edge-${parentId}-${nodeId}`,
         source: parentId,
         target: nodeId,
-        type: 'mindmap-edge'
+        type: 'smoothstep'
       };
       
       setEdges(currentEdges => {
@@ -1483,88 +1186,121 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
     return nodeId;
   }, [handleFollowUpQuestion, handleNodeHover, handleNodeResize]);
 
-  // Then define the handleTopicClick function and store it in the ref (around line 1489):
-  const handleTopicClick = useCallback((parentNodeId: string, topic: string) => {
-    logger.debug('Topic clicked:', { parentNodeId, topic });
-    
-    // Generate a unique ID for the topic node
-    const topicNodeId = `topic-${topic.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}`;
-    
-    // For demo purposes, create a placeholder explanation
-    // In a real app, this would come from an API call to Claude
-    const explanation = `This is a placeholder explanation for the topic "${topic}". In a full implementation, this would be generated by calling Claude API to get a detailed explanation of the topic.`;
-    
-    // Find the parent node to position the topic node relative to it
-    // Use getNodes() to get the current nodes instead of using the nodes from the dependency array
-    const nodesSnapshot = getNodes();
-    const foundParentNode = nodesSnapshot.find(n => n.id === parentNodeId);
-    if (!foundParentNode) {
-      logger.error('Parent node not found', { parentNodeId });
-      return;
-    }
-    
-    // Calculate an angle and distance for a natural-looking placement
-    // This will place the topic node in a semi-random position around the parent
-    const angle = Math.random() * Math.PI * 2; // Random angle around the circle
-    const distance = 300 + Math.random() * 100; // Distance from parent node
-    
-    const topicNodePosition = {
-      x: foundParentNode.position.x + Math.cos(angle) * distance,
-      y: foundParentNode.position.y + Math.sin(angle) * distance,
-    };
-    
-    // Create the topic node
-    const topicNode = {
-      id: topicNodeId,
-      type: 'topic',
-      position: topicNodePosition,
-      data: {
-        id: topicNodeId,
-        topic,
-        explanation,
-        canvasId,
-        onSelect: handleNodeSelection,
-        onNodeHover: handleNodeHover,
-        onResize: handleNodeResize
-      },
-    };
-    
-    // Add the node to the canvas
-    setNodes((currentNodes) => [...currentNodes, topicNode]);
-    
-    // Add an edge from the parent to the topic node
-    const topicEdgeId = `edge-${parentNodeId}-to-${topicNodeId}`;
-    const topicEdge = {
-      id: topicEdgeId,
-      source: parentNodeId,
-      target: topicNodeId,
-      type: 'smoothstep',
-      animated: true,
-      style: { stroke: '#6366f1', strokeWidth: 2 }, // Indigo color for topic connections
-    };
-    
-    setEdges((currentEdges) => [...currentEdges, topicEdge]);
-    
-    // Fit the view to make sure the new node is visible
-    setTimeout(() => {
-      if (reactFlowInstance) {
-        reactFlowInstance.fitView({ padding: 0.2, includeHiddenNodes: false });
+  // Then define the handleTopicClick function and store it in the ref
+  const handleTopicClick = async (topic: string, parentNodeId: string) => {
+    try {
+      const context = buildAncestorContext(parentNodeId);
+      const response = await claudeApi.processTopic(topic, context);
+
+      const topicNodeId = `topic-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const newNode = createTopicNode(topicNodeId, response.explanation, parentNodeId);
+
+      const newEdgeId = `${parentNodeId}-to-${topicNodeId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const newEdge: FlowEdge = {
+        id: newEdgeId,
+        source: parentNodeId,
+        target: topicNodeId,
+        type: 'smoothstep',
+        animated: true,
+        style: { stroke: '#6366f1', strokeWidth: 2 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+          color: '#6366f1'
+        }
+      };
+
+      // Check for duplicate edges
+      const isDuplicate = edges.some(existingEdge => 
+        existingEdge.source === newEdge.source && 
+        existingEdge.target === newEdge.target
+      );
+
+      if (!isDuplicate) {
+        setNodes(prevNodes => [...prevNodes, newNode]);
+        setEdges(prevEdges => [...prevEdges, newEdge]);
+      } else {
+        console.log('Skipping duplicate edge creation');
       }
-    }, 100);
-  }, [canvasId, handleNodeHover, handleNodeResize, handleNodeSelection, getNodes, reactFlowInstance, setEdges, setNodes]);
+    } catch (error) {
+      console.error('Error processing topic:', error);
+      // Show error toast or notification to user
+      if (onError) {
+        onError('Failed to process topic. Please try again.');
+      }
+    }
+  };
 
   // Store the function in the ref
   useEffect(() => {
     topicClickRefHolder.current = handleTopicClick;
   }, [handleTopicClick]);
 
-  // Make sure nodeTypes are memoized - add this at the top-level of the component
-  // Right below the const declarations for dimensions around line 40
-  const memoizedNodeTypes = useMemo(() => NODE_TYPES, []);
+  // Function to create a standard edge
+  const createEdge = (source: string, target: string) => {
+    logger.debug('Creating edge', { source, target, type: 'smoothstep' });
+    return {
+      id: `edge-${source}-${target}`,
+      source,
+      target,
+      type: 'smoothstep',
+      animated: true,
+      style: { 
+        stroke: '#cbd5e0',
+        strokeWidth: 1.5
+      }
+    };
+  };
 
-  // Define edge types and memoize them to prevent re-renders
-  const EDGE_TYPES = {};
-  const memoizedEdgeTypes = useMemo(() => EDGE_TYPES, []);
+  const createTopicNode = (id: string, explanation: string, parentId: string): TopicNode => {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 300 + Math.random() * 100;
+    
+    // Find parent node position
+    const parentNode = nodes.find(n => n.id === parentId);
+    const position = parentNode ? {
+      x: parentNode.position.x + Math.cos(angle) * distance,
+      y: parentNode.position.y + Math.sin(angle) * distance
+    } : { x: 0, y: 0 };
+
+    return {
+      id,
+      type: 'topic',
+      position,
+      data: {
+        id,
+        topic: id,
+        explanation,
+        onTopicClick: handleTopicClick
+      }
+    };
+  };
+
+  const createFollowUpNode = (id: string, question: string, parentId: string): FollowUpNode => {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 300 + Math.random() * 100;
+    
+    // Find parent node position
+    const parentNode = nodes.find(n => n.id === parentId);
+    const position = parentNode ? {
+      x: parentNode.position.x + Math.cos(angle) * distance,
+      y: parentNode.position.y + Math.sin(angle) * distance
+    } : { x: 0, y: 0 };
+
+    return {
+      id,
+      type: 'followUp',
+      position,
+      data: {
+        id,
+        question,
+        content: question,
+        onFollowUp: handleFollowUpQuestion,
+        onTopicClick: handleTopicClick
+      }
+    };
+  };
 
   return (
     <div className="h-full flex">
@@ -1578,8 +1314,8 @@ const MindMapCanvas: React.FC<MindMapCanvasProps> = ({ initialQuery, canvasId })
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
-          nodeTypes={memoizedNodeTypes}
-          edgeTypes={memoizedEdgeTypes}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onDragOver={onDragOver}
           fitView
           onInit={onInit}

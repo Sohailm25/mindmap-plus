@@ -244,7 +244,7 @@ const ResponseNode = ({ data, isConnectable }: NodeProps<ResponseNodeProps>) => 
   // Handle topic click
   const handleTopicClick = (topic: string) => {
     if (onTopicClick) {
-      onTopicClick(id, topic);
+      onTopicClick(topic, id);
     }
   };
   

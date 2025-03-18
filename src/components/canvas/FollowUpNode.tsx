@@ -352,7 +352,7 @@ const FollowUpNode = ({ data, isConnectable }: NodeProps<FollowUpNodeData>) => {
   // Handle topic click
   const handleTopicClick = (topic: string) => {
     if (onTopicClick) {
-      onTopicClick(id, topic);
+      onTopicClick(topic, id);
     }
   };
   

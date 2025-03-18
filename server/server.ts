@@ -2,7 +2,8 @@ import express, { Request, Response, NextFunction, Application } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
-import logger from './utils/logger';
+import logger from './utils/logger.js';
+import claudeRoutes from './routes/claudeRoutes.js';
 
 // Load environment variables
 dotenv.config({ path: path.resolve('.env') });
@@ -23,10 +24,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// API routes will be imported here
-// app.use('/api/auth', authRoutes);
-// app.use('/api/canvas', canvasRoutes);
-// app.use('/api/claude', claudeRoutes);
+// API routes
+app.use('/api/claude', claudeRoutes);
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {

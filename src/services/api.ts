@@ -2,7 +2,7 @@ import logger from '../utils/logger';
 import axios from 'axios';
 import { ApiResponse, ClaudeResponse, SynthesisArtifact } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 /**
  * Base API service for making HTTP requests to the backend
@@ -187,45 +187,22 @@ export const claudeApi = {
   },
 
   // Process follow-up query
-  async processFollowUp(query: string, context: string[]): Promise<ApiResponse<ClaudeResponse>> {
+  async processFollowUp(query: string, context: string[]) {
     try {
-      logger.info('Sending follow-up request to Claude API:', {
-        endpoint: '/api/claude/follow-up',
-        questionLength: query.length,
-        contextLength: context.length,
-        baseURL: axios.defaults.baseURL || 'Not set'
+      const response = await axios.post(`${API_URL}/api/claude/followup`, {
+        query,
+        context
       });
-      
-      const response = await apiClient.post('/api/claude/follow-up', { query, context });
-      
-      if (response.status !== 200) {
-        throw new Error(`API returned status code ${response.status}`);
+
+      if (!response.data.success) {
+        console.error('API error:', response.data.error);
+        throw new Error(response.data.error || 'Failed to process follow-up query');
       }
-      
-      logger.info('Received successful follow-up response from Claude API', {
-        status: response.status,
-        dataSize: JSON.stringify(response.data).length
-      });
-      
-      return {
-        success: true,
-        data: response.data
-      };
+
+      return response.data.data;
     } catch (error) {
-      logger.error('API Error processing follow-up:', error);
-      
-      if (error instanceof Error && error.message === 'Network Error') {
-        logger.error('Network error details:', {
-          message: 'Failed to connect to the API server. Make sure the server is running at the expected URL.',
-          baseURL: axios.defaults.baseURL,
-          endpoint: '/api/claude/follow-up',
-        });
-      }
-      
-      return {
-        success: false,
-        error: 'Failed to process follow-up query. Please try again.'
-      };
+      console.error('Error in processFollowUp:', error);
+      throw new Error('Failed to process follow-up query. Please try again.');
     }
   },
 
@@ -240,6 +217,26 @@ export const claudeApi = {
         success: false,
         error: 'Failed to synthesize insights. Please try again.',
       };
+    }
+  },
+
+  // Process topic explanation
+  async processTopic(topic: string, context: string[]) {
+    try {
+      const response = await axios.post(`${API_URL}/api/claude/topic`, {
+        topic,
+        context
+      });
+
+      if (!response.data.success) {
+        console.error('API error:', response.data.error);
+        throw new Error(response.data.error || 'Failed to process topic');
+      }
+
+      return response.data.data;
+    } catch (error) {
+      console.error('Error in processTopic:', error);
+      throw new Error('Failed to process topic. Please try again.');
     }
   },
 };
